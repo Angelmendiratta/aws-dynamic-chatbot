@@ -373,8 +373,6 @@ frontend/script.js
 
 ![AWS Flow](docs/screenshots/aws_flow.png)
 
-*(Application screenshots can be added here after deployment.)*
-
 ---
 
 # Future Improvements
