@@ -47,7 +47,7 @@ function scrollBottom() {
     if (m) m.scrollTop = m.scrollHeight;
 }
 
-function setBadge(botKey) {
+function setBadge(botKey) {     /**Updates the bot badge in the topbar**/
     const badge = $('botBadge');
     const dot   = $('botBadgeDot');
     const name  = $('botBadgeName');
@@ -65,20 +65,23 @@ function addDateDivider() {
     box.appendChild(div);
 }
 
-function renderUser(text) {
+function renderUser(text) {     /**Shows user's message in the chat */
     const box = $('messages');
     const row = document.createElement('div');
     row.className = 'row user';
     row.innerHTML = `<div class="bubble">${esc(text)}</div>`;
-    box.appendChild(row);
+    box.appendChild(row);     /**appendChild() - Adds it to the messages area */
     scrollBottom();
 }
 
-function renderBot(content) {
-    const box = $('messages');
-    const row = document.createElement('div');
-    row.className = 'row bot';
-
+/**
+ * Build the small circular avatar shown next to bot messages.
+ * Uses the currently-selected bot's initial & color, or a neutral fallback.
+ * Centralized so we don't repeat the same DOM/style code in every renderer
+ * (text bubble, card, form, typing indicator).
+ */
+function buildAvatar() {
+    /**Creates avatar (colored circle with letter) */
     const av = document.createElement('div');
     av.className = 'avatar';
     if (state.activeBot && BOT_META[state.activeBot]) {
@@ -88,7 +91,14 @@ function renderBot(content) {
         av.textContent = '⚙';
         av.style.background = 'linear-gradient(135deg, #00c4a7, #0070f3)';
     }
-
+    return av;
+}
+function renderBot(content) {
+    const box = $('messages');
+    const row = document.createElement('div');
+    row.className = 'row bot';
+    const av = buildAvatar();
+    /**creates message content */
     let inner;
     if (content.type === 'welcome')     inner = buildWelcomeCard();
     else if (content.type === 'card')   inner = buildCardBubble(content.title, content.buttons);
@@ -106,6 +116,7 @@ function renderBot(content) {
     scrollBottom();
 }
 
+/**Creates the initial welcome screen */
 function buildWelcomeCard() {
     const card = document.createElement('div');
     card.className = 'welcome-card';
@@ -142,6 +153,7 @@ function buildWelcomeCard() {
     return card;
 }
 
+/**it creates ANY buttons the Lambda tells it to create */
 function buildCardBubble(title, buttons) {
     const wrap = document.createElement('div');
     wrap.className = 'card-bubble';
@@ -170,14 +182,12 @@ function buildCardBubble(title, buttons) {
     return wrap;
 }
 
+/**Bot is typing... animation comes from here */
 function showTyping() {
     const box = $('messages');
     const row = document.createElement('div');
     row.className = 'row bot'; row.id = 'typing';
-    const av = document.createElement('div');
-    av.className = 'avatar';
-    av.textContent = state.activeBot && BOT_META[state.activeBot] ? BOT_META[state.activeBot].initial : '⚙';
-    if (state.activeBot && BOT_META[state.activeBot]) av.style.background = `linear-gradient(135deg, ${BOT_META[state.activeBot].color}, #0070f3)`;
+    const av = buildAvatar();
     const t = document.createElement('div');
     t.className = 'typing';
     t.innerHTML = '<div class="tdot"></div><div class="tdot"></div><div class="tdot"></div>';
@@ -188,9 +198,9 @@ function showTyping() {
 function hideTyping() { $('typing')?.remove(); }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-/* ═══════════════════════════════════════════════
-   API MANAGER — one endpoint for everything
-════════════════════════════════════════════════ */
+/*API MANAGER — one endpoint for everything*/
+/**bridge between your website (the frontend) and your AWS backend */
+
 async function callAPI(message) {
     if (!API_URL) throw new Error('API_URL not configured (edit public/config.js).');
     const res = await fetch(API_URL, {
@@ -218,6 +228,7 @@ function handleResponse(data) {
     if (data.activeBot) { state.activeBot = data.activeBot; setBadge(data.activeBot); }
 
     const attrs = data.sessionAttributes || {};
+    const messages = data.messages || [];
 
     if (attrs.formSchema) {
         try { FormFlow.openWithSchema(JSON.parse(attrs.formSchema)); } catch (e) { console.error('bad formSchema', e); }
@@ -236,12 +247,11 @@ function handleResponse(data) {
         return;
     }
 
-    const messages = data.messages || [];
     if (messages.length === 0 && !attrs.formErrors) {
         renderBot({ type: 'text', text: "I didn't catch that. Could you try again?" });
         return;
     }
-
+/**unpacks hidden buttons sent by the backend and attaches them directly underneath the very last text bubble in the chat. */
     let uiButtons = [];
     try { const raw = attrs.uiButtons; if (raw) uiButtons = JSON.parse(raw); } catch (e) { uiButtons = []; }
 
@@ -253,11 +263,9 @@ function handleResponse(data) {
     });
 }
 
-/* ═══════════════════════════════════════════════
-   FORM RENDERER — dumb schema → HTML converter
+/* FORM RENDERER — dumb schema → HTML converter
    Field types supported: text, email, phone, select, chips, date-grid, time-grid.
-   The Lambda decides labels, options, order and requiredness.
-════════════════════════════════════════════════ */
+   The Lambda decides labels, options, order and requiredness.*/
 function appendChatForm(cardEl, slotId) {
     document.querySelectorAll('.chat-form-slot').forEach(n => n.remove());
 
@@ -266,22 +274,15 @@ function appendChatForm(cardEl, slotId) {
     row.className = 'row bot chat-form-slot';
     if (slotId) row.id = slotId;
 
-    const av = document.createElement('div');
-    av.className = 'avatar';
-    if (state.activeBot && BOT_META[state.activeBot]) {
-        av.textContent = BOT_META[state.activeBot].initial;
-        av.style.background = `linear-gradient(135deg, ${BOT_META[state.activeBot].color}, #0070f3)`;
-    } else {
-        av.textContent = '⚙';
-        av.style.background = 'linear-gradient(135deg, #00c4a7, #0070f3)';
-    }
-
-    row.appendChild(av);
+    row.appendChild(buildAvatar());
     row.appendChild(cardEl);
     box.appendChild(row);
     scrollBottom();
 }
 
+/**Main function to render the form
+ * Saves schema to state for later
+ */
 const FormRenderer = {
     build(schema) {
         state.formSchema = schema;
@@ -290,6 +291,7 @@ const FormRenderer = {
         const card = document.createElement('div');
         card.className = 'form-card chat-form-card';
 
+        /**Title + progress bar */
         const header = document.createElement('div');
         header.className = 'form-header';
         header.innerHTML = `
@@ -300,43 +302,52 @@ const FormRenderer = {
         `;
         card.appendChild(header);
 
+        /**Form fields */
         const body = document.createElement('div');
         body.className = 'form-body';
         schema.fields.forEach(f => body.appendChild(this.buildField(f)));
         card.appendChild(body);
 
+        /**cancel/continue buttons */
         const footer = document.createElement('div');
         footer.className = 'form-footer';
         footer.innerHTML = `
             <button class="form-btn secondary" onclick="FormFlow.cancel()">Cancel</button>
             <button class="form-btn primary" id="formSubmitBtn" onclick="FormFlow.submit()" disabled>Continue</button>
-        `;
+        `;                                                                       /**continue is disabled initially */
         card.appendChild(footer);
 
         appendChatForm(card, 'chatFormSlot');
         this.updateProgress();
     },
-
-    buildField(field) {
+   /**Lambda backend sends the JSON blueprint, this function takes those instructions and physically builds that specific field piece-by-piece. */
+   /**Label + Input + Hint + Error Box*/
+buildField(field) {
         const wrap = document.createElement('div');
         wrap.className = 'form-field';
         wrap.dataset.name = field.name;
-
-        const label = document.createElement('label');
-        label.className = 'form-label';
-        label.innerHTML = `${esc(field.label)}${field.required ? ' <span class="req">*</span>' : ''}`;
-        wrap.appendChild(label);
-
+        
+        // Hide standard label for checkboxes and video buttons
+        if (field.type !== 'checkbox' && field.type !== 'video-button') {
+            const label = document.createElement('label');
+            label.className = 'form-label';
+            label.innerHTML = `${esc(field.label)}${field.required ? ' <span class="req">*</span>' : ''}`;
+            wrap.appendChild(label);
+        }
+        
         let input;
         switch (field.type) {
-            case 'chips':     input = this.buildChips(field); break;
-            case 'date-grid': input = this.buildDateGrid(field); break;
-            case 'time-grid': input = this.buildTimeGrid(field); break;
-            case 'select':    input = this.buildSelect(field); break;
-            default:          input = this.buildInput(field);
+            case 'chips':       input = this.buildChips(field); break;
+            case 'date-grid':   input = this.buildDateGrid(field); break;
+            case 'time-grid':   input = this.buildTimeGrid(field); break;
+            case 'select':      input = this.buildSelect(field); break;
+            case 'checkbox':    input = this.buildCheckbox(field); break;     // NEW
+            case 'video-button': input = this.buildVideoButton(field); break; // NEW
+            case 'radio':       input = this.buildRadio(field); break;        // NEW
+            default:            input = this.buildInput(field);
         }
         wrap.appendChild(input);
-
+        
         if (field.hint) {
             const h = document.createElement('div');
             h.className = 'form-hint'; h.textContent = field.hint;
@@ -347,17 +358,26 @@ const FormRenderer = {
         wrap.appendChild(err);
         return wrap;
     },
-
+    /**Creates a simple text/email/phone input */
     buildInput(field) {
         const el = document.createElement('input');
-        el.className = 'form-input';
-        el.type = (field.type === 'email') ? 'email' : (field.type === 'phone' ? 'tel' : 'text');
-        el.placeholder = field.placeholder || '';
-        if (field.maxLength) el.maxLength = field.maxLength;
-        el.oninput = () => FormFlow.setValue(field.name, el.value);
+        if (field.type === 'file') {
+            el.type = 'file';
+            el.className = 'form-input file-input';
+            el.accept = field.accept || '*/*';
+            // Only send the file name string to AWS memory, not the whole file blob
+            el.onchange = () => FormFlow.setValue(field.name, el.files[0] ? el.files[0].name : '');
+        } else {
+            el.className = 'form-input';
+            el.type = (field.type === 'email') ? 'email' : (field.type === 'phone' ? 'tel' : 'text');
+            el.placeholder = field.placeholder || '';
+            if (field.maxLength) el.maxLength = field.maxLength;
+            el.oninput = () => FormFlow.setValue(field.name, el.value);
+        }
         return el;
     },
-
+    
+    /**selecting from options */
     buildSelect(field) {
         const el = document.createElement('select');
         el.className = 'form-select';
@@ -367,6 +387,45 @@ const FormRenderer = {
         return el;
     },
 
+    buildCheckbox(field) {
+        const cWrap = document.createElement('div');
+        cWrap.className = 'checkbox-group';
+        cWrap.innerHTML = `
+            <input type="checkbox" id="chk_${field.name}" name="${field.name}" class="checkbox-input" value="Yes" ${field.required ? 'required' : ''}>
+            <label for="chk_${field.name}" class="checkbox-label">${esc(field.label)} ${field.required ? '<span class="req">*</span>' : ''}</label>
+        `;
+        const chk = cWrap.querySelector('input');
+        chk.onchange = () => FormFlow.setValue(field.name, chk.checked ? 'Yes' : '');
+        return cWrap;
+    },
+
+    buildVideoButton(field) {
+        const vBtn = document.createElement('button');
+        vBtn.type = 'button';
+        vBtn.className = 'video-btn';
+        vBtn.innerHTML = `▶ ${esc(field.label)}`;
+        vBtn.onclick = () => window.open(field.url, '_blank');
+        FormFlow.setValue(field.name, 'Clicked'); // Auto-fills state so it doesn't block the submit button
+        return vBtn;
+    },
+
+    buildRadio(field) {
+        const rWrap = document.createElement('div');
+        rWrap.className = 'radio-group';
+        (field.options || []).forEach((opt, idx) => {
+            const rId = `radio_${field.name}_${idx}`;
+            rWrap.innerHTML += `
+                <input type="radio" id="${rId}" name="${field.name}" value="${opt}" class="radio-input">
+                <label for="${rId}" class="radio-label">${esc(opt)}</label>
+            `;
+        });
+        rWrap.querySelectorAll('input').forEach(radio => {
+            radio.onchange = () => FormFlow.setValue(field.name, radio.value);
+        });
+        return rWrap;
+    },
+
+/**Creates selectable buttons (like product options: "Refrigerator", "TV", "Washing Machine") */
     buildChips(field) {
         const grid = document.createElement('div');
         grid.className = 'chip-grid';
@@ -384,6 +443,7 @@ const FormRenderer = {
         return grid;
     },
 
+    /**Creates a calendar-like grid of dates */
     buildDateGrid(field) {
         const grid = document.createElement('div');
         grid.className = 'date-grid';
@@ -403,7 +463,7 @@ const FormRenderer = {
         });
         return grid;
     },
-
+    /**Creates time slot buttons (like "09:00 AM", "10:00 AM", etc.) */
     buildTimeGrid(field) {
         const grid = document.createElement('div');
         grid.className = 'time-grid';
@@ -436,7 +496,8 @@ const FormRenderer = {
         const bar = $('formProgress'); if (bar) bar.style.width = pct + '%';
         const btn = $('formSubmitBtn'); if (btn) btn.disabled = pct < 100;
     },
-
+    
+    /**Shows error message below a field */
     showError(name, message) {
         const wrap = document.querySelector(`.form-field[data-name="${CSS.escape(name)}"]`);
         if (!wrap) return;
@@ -453,7 +514,8 @@ const FormRenderer = {
             if (el) el.textContent = '';
         });
     },
-
+    
+    /**Checkout screen */
     renderSummary(summary) {
         const card = document.createElement('div');
         card.className = 'form-card chat-form-card';
@@ -473,7 +535,8 @@ const FormRenderer = {
             </div>`;
         appendChatForm(card, 'chatFormSlot');
     },
-
+    
+    /**final receipt */
     renderSuccess(res) {
         const card = document.createElement('div');
         card.className = 'form-card chat-form-card';
@@ -493,13 +556,11 @@ const FormRenderer = {
     }
 };
 
-/* ═══════════════════════════════════════════════
-   FORM FLOW (workflow manager for the form)
-   All decisions happen server-side; this just moves data around.
-════════════════════════════════════════════════ */
+/* FORM FLOW (workflow manager for the form)
+   All decisions happen server-side; this just moves data around. */
 const FormFlow = {
     openWithSchema(schema) { FormRenderer.build(schema); },
-
+    /**Called when user fills any field */
     setValue(name, value) {
         state.formValues[name] = value;
         FormRenderer.updateProgress();
@@ -507,6 +568,7 @@ const FormFlow = {
         FormRenderer.showError(name, '');
     },
 
+    /**user clicks continue and it creates payload and sends to lambda */
     async submit() {
         const btn = $('formSubmitBtn');
         if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
@@ -526,7 +588,8 @@ const FormFlow = {
     showErrors(errors) {
         Object.entries(errors || {}).forEach(([name, msg]) => FormRenderer.showError(name, msg));
     },
-
+    
+    /**review card before submission */
     showSummary(summary) {
         state.formSummary = summary;
         FormRenderer.renderSummary(summary);
@@ -534,6 +597,7 @@ const FormFlow = {
 
     editAgain() { if (state.formSchema) FormRenderer.build(state.formSchema); },
 
+    /**called when booking is confirmed, lambda returns success message */
     async confirm() {
         try {
             const payload = { bot: state.activeBot, values: state.formValues, confirmed: true };
@@ -548,7 +612,7 @@ const FormFlow = {
     showSuccess(res) { FormRenderer.renderSuccess(res); },
 
     cancel() { this.close(); },
-
+    /**clicked done */
     finishSuccess(btnEl) {
         document.querySelectorAll('.chat-form-slot').forEach(n => n.classList.remove('chat-form-slot'));
         if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Done ✓'; }
