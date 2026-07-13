@@ -96,9 +96,9 @@ def _form_schema():
             { "name": "firstName", "type": "text", "label": "First Name", "required": True },
             { "name": "lastName", "type": "text", "label": "Last Name", "required": True },
             { "name": "gender", "type": "radio", "label": "Gender", "options": ["Male", "Female"], "required": True },
-            { "name": "phone", "type": "phone", "label": "Phone Number", "placeholder": "10 digits", "required": True },
+            { "name": "phone", "type": "tel", "label": "Phone Number", "placeholder": "10 digits", "required": True },
             { "name": "email", "type": "email", "label": "Email Address", "placeholder": "name@domain.com", "required": True },
-            { "name": "demoVideo", "type": "video-button", "label": "Watch Form Tutorial (YouTube)", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+            { "name": "demoVideo", "type": "video-button", "label": "Watch Form Tutorial (YouTube)", "url": "https://youtu.be/8C_kHJ5YEiA?si=wJz-u4AlBHB2IcUu" },
             { "name": "appliance", "type": "select", "label": "Select Product", "options": product_options, "required": True },
             { "name": "billImage", "type": "file", "label": "Upload Bill/Proof Image", "accept": "image/*" },
             { "name": "problem", "type": "text", "label": "Briefly describe the issue (optional)", "placeholder": "e.g., The fridge stopped cooling..." },
@@ -204,7 +204,7 @@ def handle_form_event(event):
                 {"label": "Product",  "value": values.get("appliance","")},
                 {"label": "Date",     "value": values.get("prefDate","")},
                 {"label": "Time",     "value": values.get("prefTime","")},
-                {"label": "Notif",    "value": values.get("notifyPref","")}
+                {"label": "Notification",    "value": values.get("notifyPref","")}
             ]
         }
         return _form_response(session_attrs={"formSummary": json.dumps(summary)})
