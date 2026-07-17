@@ -88,6 +88,13 @@ def lambda_handler(event, context):
         session_id   = body.get('sessionId', str(uuid.uuid4()))
         active_bot   = body.get('activeBot', '')
 
+        print(f"=== INCOMING REQUEST ===")
+        print(f"Active Bot: {active_bot}")
+        print(f"Message: {user_message}")
+        print(f"Session ID: {session_id}")
+        print(f"Full Payload: {json.dumps(body)}")
+        print(f"========================")
+
         BOT_REGISTRY = get_registry()
 
         # ---------------- No bot selected yet ----------------
