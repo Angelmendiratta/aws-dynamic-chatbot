@@ -32,19 +32,21 @@
 
     <!-- Demo video -->
     <details class="demo-video">
-        <summary>▶ Watch form tutorial</summary>
-        <div class="demo-video-frame-wrap">
-            <iframe
-                id="tutorialVideo"
-                width="560"
-                height="315"
-                frameborder="0"
-                allowfullscreen
-                referrerpolicy="strict-origin-when-cross-origin"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            ></iframe>
-        </div>
-    </details>
+    <summary>▶ Watch form tutorial</summary>
+    <div class="demo-video-frame-wrap">
+        <video
+            id="tutorialVideo"
+            width="100%"
+            height="315"
+            controls
+            controlsList="nodownload"
+            disablePictureInPicture
+        >
+            <source id="tutorialVideoSource" src="" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+</details>
 
     <!-- Messages -->
     <main class="messages" id="messages"></main>
@@ -87,7 +89,7 @@
 <script src="config.js"></script>
 <script src="script.js?v=9"></script>
 
-<script>
+<!-- <script>
     // Build YouTube iframe src from CONFIG — no hardcoding
     function initYouTubePlayer() {
         const yt = CONFIG.YOUTUBE;
@@ -119,6 +121,29 @@
 
     // Run on page load
     initYouTubePlayer();
+</script> -->
+<script>
+    // Load video src from config — no hardcoding
+    function initVideoPlayer() {
+        const v = CONFIG.VIDEO;
+        const source = document.getElementById('tutorialVideoSource');
+        const video  = document.getElementById('tutorialVideo');
+        if (source && v && v.src) {
+            source.src  = v.src;
+            source.type = v.type || 'video/mp4';
+            video.load();
+        }
+    }
+
+    // Pause video when tutorial section is collapsed
+    document.querySelector('.demo-video')?.addEventListener('toggle', function() {
+        const video = document.getElementById('tutorialVideo');
+        if (!this.open && video) {
+            video.pause();
+        }
+    });
+
+    initVideoPlayer();
 </script>
 
 </body>
