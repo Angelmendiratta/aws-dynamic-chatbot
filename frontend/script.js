@@ -137,7 +137,7 @@ function buildWelcomeCard() {
                 <div class="pick-avatar" style="background:linear-gradient(135deg,#ff8c42,#e05f00)">K</div>
                 <div class="pick-info">
                     <div class="pick-name">Krishna's Assistant</div>
-                    <div class="pick-sub">Technical Support · Currently not Available</div>
+                    <div class="pick-sub">Technical Support · Available</div>
                 </div>
                 <span class="pick-arrow">→</span>
             </button>
@@ -666,7 +666,7 @@ const Chat = {
             handleResponse(selectRes);
 
             // 2) Ask the business Lambda for its form schema.
-            if (botKey === 'angel' || botKey === 'dhruv') {
+            if (botKey === 'angel' || botKey === 'dhruv' || botKey === 'krishna') {
                 showTyping();
                 const initRes = await callAPI(`INIT_${botKey.toUpperCase()}`);
                 hideTyping();
