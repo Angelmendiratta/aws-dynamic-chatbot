@@ -38,7 +38,14 @@ def get_registry():
             'localeId':   'en_US',
             'region':     os.environ.get('REGION', 'ap-southeast-1'),
             'lambdaArn':  os.environ.get('DHRUV_LAMBDA_ARN', '')
-        }
+        },
+       'krishna': {
+            'botId':      os.environ.get('KRISHNA_BOT_ID', ''),
+            'botAliasId': 'TSTALIASID',
+            'localeId':   'en_US',
+            'region':     os.environ.get('REGION', 'ap-southeast-1'),
+            'lambdaArn':  os.environ.get('KRISHNA_LAMBDA_ARN', '')
+}
     }
 
 
