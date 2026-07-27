@@ -2,6 +2,24 @@ import json
 import re
 import datetime
 import uuid
+import os
+
+# --- DEMO VIDEO CONFIG (env-driven; nothing hardcoded on the frontend) ---
+DEMO_VIDEO_URL    = os.environ.get("DEMO_VIDEO_URL", "")
+DEMO_MESSAGE      = os.environ.get(
+    "DEMO_MESSAGE",
+    "Here's a short demo — tap below to play it right here in the chat."
+)
+DEMO_BUTTON_LABEL = os.environ.get("DEMO_BUTTON_LABEL", "Watch demo")
+DEMO_TRIGGERS     = [t.strip().lower() for t in os.environ.get(
+    "DEMO_TRIGGERS",
+    "demo,show demo,show me a demo,video,tutorial,show tutorial,how does this work,how to use"
+).split(",") if t.strip()]
+def _is_demo_request(text):
+    if not text: return False
+    t = text.strip().lower()
+    return any(trig in t for trig in DEMO_TRIGGERS)
+
 
 # --- MOCK DATABASE ---
 BOOKED_APPOINTMENTS = {
@@ -14,8 +32,11 @@ VALID_PRODUCTS = ["Refrigerator", "Television", "Washing Machine", "Dishwasher"]
 # --- HELPER FUNCTIONS ---
 def validate_phone(phone_number):
     if not phone_number: return False
-    cleaned = ''.join(filter(str.isdigit, phone_number))
-    return len(cleaned) == 10
+    phone_str = str(phone_number)
+    if any(c.isalpha() for c in phone_str):
+        return False
+    cleaned = re.sub(r'[\s\-\(\)\+]', '', phone_str)
+    return cleaned.isdigit() and len(cleaned) == 10
 
 def validate_email(email_address):
     if not email_address: return False
@@ -404,6 +425,32 @@ def _close_cancelled(intent):
                       "content": "No problem, I've canceled the process. Let me know if you need anything else!"}]
     }
 
+def _demo_interject(intent, slots, session_attrs):
+    """
+    Show the demo message + Watch-demo button without changing dialog state.
+    """
+    pending = None
+    for name in DHRUV_SLOT_ORDER:
+        if _slot_val(slots, name) is None:
+            pending = name
+            break
+    if pending is None:
+        pending = "FirstName"
+    attrs = dict(session_attrs or {})
+    attrs["uiButtons"] = json.dumps([
+        {"text": DEMO_BUTTON_LABEL, "action": "playVideo", "url": DEMO_VIDEO_URL}
+    ])
+    intent["slots"] = slots
+    return {
+        "sessionState": {
+            "dialogAction": {"type": "ElicitSlot", "slotToElicit": pending},
+            "intent": intent,
+            "sessionAttributes": attrs
+        },
+        "messages": [{"contentType": "PlainText", "content": DEMO_MESSAGE}]
+    }
+
+
 def lambda_handler(event, context):
     # ---- Dynamic-form bypass ----
     if isinstance(event, dict) and (event.get("formAction") or event.get("invocationSource") == "FastLane"):
@@ -442,6 +489,8 @@ def lambda_handler(event, context):
             }
 
         if invocation_source == 'DialogCodeHook':
+            if _is_demo_request(input_transcript):
+                return _demo_interject(intent, slots, session_attributes)
             if _all_slots_filled(slots):
                 if input_transcript in _CONFIRM_YES or intent.get('confirmationState') == 'Confirmed':
                     return _close_confirmed(intent, slots, session_attributes, event.get('sessionId', ''))
