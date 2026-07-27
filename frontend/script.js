@@ -136,8 +136,8 @@ function buildWelcomeCard() {
             <button class="bot-pick-btn" data-bot="krishna" onclick="Chat.pickBot('krishna', this)">
                 <div class="pick-avatar" style="background:linear-gradient(135deg,#ff8c42,#e05f00)">K</div>
                 <div class="pick-info">
-                    <div class="pick-name">Krishna's Assistant</div>
-                    <div class="pick-sub">Technical Support · Available</div>
+                    <div class="pick-name">Service Inquiry</div>
+                    <div class="pick-sub">Technical Support · Available Now</div>
                 </div>
                 <span class="pick-arrow">→</span>
             </button>
@@ -168,6 +168,17 @@ function buildCardBubble(title, buttons) {
             btn.className = 'card-btn';
             btn.textContent = b.text;
             btn.onclick = () => {
+                // Backend-driven action: play a video inline in this chat (no new tab).
+                if (b.action === 'playVideo') {
+                    btns.querySelectorAll('.card-btn').forEach(x => x.disabled = true);
+                    const videoUrl = b.url || (window.CONFIG && CONFIG.DEMO_VIDEO_URL) || '';
+                    if (videoUrl) {
+                        playInlineVideo(videoUrl);
+                    } else {
+                        renderBot({ type: 'text', text: 'Demo video is not configured yet. Set DEMO_VIDEO_URL in config.js.' });
+                    }
+                    return;
+                }
                 if (typeof b.value === 'string' && (b.value.startsWith('http://') || b.value.startsWith('https://'))) {
                     window.open(b.value, '_blank'); return;
                 }
@@ -176,11 +187,32 @@ function buildCardBubble(title, buttons) {
             };
             btns.appendChild(btn);
         });
+
         wrap.appendChild(btns);
     }
     return wrap;
 }
 
+
+function playInlineVideo(url) {
+    const box = $('messages');
+    const row = document.createElement('div');
+    row.className = 'row bot';
+    row.appendChild(buildAvatar());
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-video-wrap';
+    const video = document.createElement('video');
+    video.className = 'chat-video';
+    video.src = url;
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    wrap.appendChild(video);
+    row.appendChild(wrap);
+    box.appendChild(row);
+    scrollBottom();
+}
 function showTyping() {
     const box = $('messages');
     const row = document.createElement('div');
@@ -281,9 +313,9 @@ function appendChatForm(cardEl, slotId) {
 }
 
 const FormRenderer = {
-    build(schema) {
-        state.formSchema = schema;
-        state.formValues = {};
+    build(schema, existingValues) {
+    state.formSchema = schema;
+    state.formValues = existingValues ? { ...existingValues } : {};
 
         const card = document.createElement('div');
         card.className = 'form-card chat-form-card';
@@ -325,18 +357,20 @@ const FormRenderer = {
         label.innerHTML = `${esc(field.label)}${field.required ? ' <span class="req">*</span>' : ''}`;
         wrap.appendChild(label);
 
-        let input;
-        switch (field.type) {
-            case 'chips':     input = this.buildChips(field); break;
-            case 'date-grid': input = this.buildDateGrid(field); break;
-            case 'time-grid': input = this.buildTimeGrid(field); break;
-            case 'select':    input = this.buildSelect(field); break;
-            case 'radio':     input = this.buildRadio(field); break;
-            case 'checkbox':  input = this.buildCheckbox(field); break;
-            case 'file':      input = this.buildFile(field); break;
-            case 'textarea':  input = this.buildTextarea(field); break;
-            default:          input = this.buildInput(field);
-        }
+        const existing = state.formValues[field.name];
+
+    let input;
+    switch (field.type) {
+        case 'chips':     input = this.buildChips(field, existing); break;
+        case 'date-grid': input = this.buildDateGrid(field, existing); break;
+        case 'time-grid': input = this.buildTimeGrid(field, existing); break;
+        case 'select':    input = this.buildSelect(field, existing); break;
+        case 'radio':     input = this.buildRadio(field, existing); break;
+        case 'checkbox':  input = this.buildCheckbox(field, existing); break;
+        case 'file':      input = this.buildFile(field, existing); break;
+        case 'textarea':  input = this.buildTextarea(field, existing); break;
+        default:          input = this.buildInput(field, existing);
+    }
         wrap.appendChild(input);
 
         if (field.hint) {
@@ -350,26 +384,28 @@ const FormRenderer = {
         return wrap;
     },
 
-    buildInput(field) {
+    buildInput(field, existing) {
         const el = document.createElement('input');
         el.className = 'form-input';
         el.type = (field.type === 'email') ? 'email' : (field.type === 'phone' ? 'tel' : 'text');
         el.placeholder = field.placeholder || '';
         if (field.maxLength) el.maxLength = field.maxLength;
+        if (existing !== undefined && existing !== null) el.value = existing;
         el.oninput = () => FormFlow.setValue(field.name, el.value);
         return el;
     },
-
-    buildSelect(field) {
+ 
+    buildSelect(field, existing) {
         const el = document.createElement('select');
         el.className = 'form-select';
         el.innerHTML = `<option value="">Select…</option>` +
             (field.options || []).map(o => `<option value="${esc(o.value)}">${esc(o.text)}</option>`).join('');
+        if (existing !== undefined && existing !== null) el.value = existing;
         el.onchange = () => FormFlow.setValue(field.name, el.value);
         return el;
     },
-
-    buildRadio(field) {
+ 
+    buildRadio(field, existing) {
         const wrap = document.createElement('div');
         wrap.className = 'radio-group';
         (field.options || []).forEach((o, i) => {
@@ -380,6 +416,10 @@ const FormRenderer = {
             row.setAttribute('for', id);
             row.innerHTML = `<input type="radio" id="${id}" name="${esc(field.name)}" value="${esc(opt.value)}"><span class="radio-dot"></span><span class="radio-text">${esc(opt.text)}</span>`;
             const input = row.querySelector('input');
+            if (existing !== undefined && existing !== null && String(existing) === String(opt.value)) {
+                input.checked = true;
+                row.classList.add('selected');
+            }
             input.onchange = () => {
                 wrap.querySelectorAll('.radio-row').forEach(r => r.classList.remove('selected'));
                 row.classList.add('selected');
@@ -389,20 +429,24 @@ const FormRenderer = {
         });
         return wrap;
     },
-
-    buildCheckbox(field) {
+ 
+    buildCheckbox(field, existing) {
         const row = document.createElement('label');
         row.className = 'checkbox-row';
         row.innerHTML = `<input type="checkbox"><span class="checkbox-box"></span><span class="checkbox-text">${esc(field.checkboxLabel || field.placeholder || 'I agree')}</span>`;
         const input = row.querySelector('input');
+        if (existing === 'true') {
+            input.checked = true;
+            row.classList.add('selected');
+        }
         input.onchange = () => {
             row.classList.toggle('selected', input.checked);
             FormFlow.setValue(field.name, input.checked ? 'true' : '');
         };
         return row;
     },
-
-    buildFile(field) {
+ 
+    buildFile(field, existing) {
         const wrap = document.createElement('div');
         wrap.className = 'file-field';
         const id = `file-${field.name}`;
@@ -417,6 +461,13 @@ const FormRenderer = {
         const input = wrap.querySelector('input');
         const preview = wrap.querySelector('.file-preview');
         const textEl = wrap.querySelector('.file-text');
+        // Browsers won't let us programmatically re-populate a <input type=file>
+        // for security reasons, so on edit we can only show the previously
+        // chosen filename as a label — the user only needs to re-select the
+        // file if they actually want to change it.
+        if (existing) {
+            textEl.textContent = existing;
+        }
         input.onchange = () => {
             const f = input.files && input.files[0];
             if (!f) { FormFlow.setValue(field.name, ''); preview.style.display = 'none'; return; }
@@ -435,27 +486,31 @@ const FormRenderer = {
         };
         return wrap;
     },
-
-    buildTextarea(field) {
+ 
+    buildTextarea(field, existing) {
         const el = document.createElement('textarea');
         el.className = 'form-input form-textarea';
         el.rows = 3;
         el.placeholder = field.placeholder || '';
         if (field.maxLength) el.maxLength = field.maxLength;
+        if (existing !== undefined && existing !== null) el.value = existing;
         el.oninput = () => FormFlow.setValue(field.name, el.value);
         return el;
     },
-
-
-
-
-    buildChips(field) {
+ 
+ 
+ 
+ 
+    buildChips(field, existing) {
         const grid = document.createElement('div');
         grid.className = 'chip-grid';
         (field.options || []).forEach(o => {
             const b = document.createElement('button');
             b.type = 'button'; b.className = 'chip';
             b.textContent = o.text; b.dataset.value = o.value;
+            if (existing !== undefined && existing !== null && String(existing) === String(o.value)) {
+                b.classList.add('selected');
+            }
             b.onclick = () => {
                 grid.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
                 b.classList.add('selected');
@@ -465,8 +520,8 @@ const FormRenderer = {
         });
         return grid;
     },
-
-    buildDateGrid(field) {
+ 
+    buildDateGrid(field, existing) {
         const grid = document.createElement('div');
         grid.className = 'date-grid';
         (field.options || []).forEach(o => {
@@ -476,6 +531,9 @@ const FormRenderer = {
             card.type = 'button'; card.className = 'date-card';
             card.dataset.value = o.value;
             card.innerHTML = `<span class="dow">${esc(dow)}</span><span class="day">${esc(day)}</span><span class="mon">${esc(mon)}</span>`;
+            if (existing !== undefined && existing !== null && String(existing) === String(o.value)) {
+                card.classList.add('selected');
+            }
             card.onclick = () => {
                 grid.querySelectorAll('.date-card').forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
@@ -485,14 +543,17 @@ const FormRenderer = {
         });
         return grid;
     },
-
-    buildTimeGrid(field) {
+ 
+    buildTimeGrid(field, existing) {
         const grid = document.createElement('div');
         grid.className = 'time-grid';
         (field.options || []).forEach(o => {
             const b = document.createElement('button');
             b.type = 'button'; b.className = 'time-btn';
             b.textContent = o.text; b.dataset.value = o.value;
+            if (existing !== undefined && existing !== null && String(existing) === String(o.value)) {
+                b.classList.add('selected');
+            }
             b.onclick = () => {
                 grid.querySelectorAll('.time-btn').forEach(c => c.classList.remove('selected'));
                 b.classList.add('selected');
@@ -502,7 +563,7 @@ const FormRenderer = {
         });
         return grid;
     },
-
+ 
     /**
      * Progress bar + Submit button gating.
      * We ONLY check that required fields have a non-empty value — no format
@@ -518,7 +579,7 @@ const FormRenderer = {
         const bar = $('formProgress'); if (bar) bar.style.width = pct + '%';
         const btn = $('formSubmitBtn'); if (btn) btn.disabled = pct < 100;
     },
-
+ 
     showError(name, message) {
         const wrap = document.querySelector(`.form-field[data-name="${CSS.escape(name)}"]`);
         if (!wrap) return;
@@ -527,7 +588,7 @@ const FormRenderer = {
         const el = wrap.querySelector('.form-error-msg');
         if (el) el.textContent = message || '';
     },
-
+ 
     clearAllErrors() {
         document.querySelectorAll('.form-field').forEach(w => {
             w.classList.remove('error');
@@ -535,7 +596,7 @@ const FormRenderer = {
             if (el) el.textContent = '';
         });
     },
-
+ 
     renderSummary(summary) {
         const card = document.createElement('div');
         card.className = 'form-card chat-form-card';
@@ -555,7 +616,7 @@ const FormRenderer = {
             </div>`;
         appendChatForm(card, 'chatFormSlot');
     },
-
+ 
     renderSuccess(res) {
         const card = document.createElement('div');
         card.className = 'form-card chat-form-card';
@@ -574,7 +635,7 @@ const FormRenderer = {
         appendChatForm(card, 'chatFormSlot');
     }
 };
-
+ 
 /* ═══════════════════════════════════════════════
    FORM FLOW (workflow manager for the form)
    All decisions happen server-side; this just moves data around.
@@ -614,7 +675,9 @@ const FormFlow = {
         FormRenderer.renderSummary(summary);
     },
 
-    editAgain() { if (state.formSchema) FormRenderer.build(state.formSchema); },
+    editAgain() {
+    if (state.formSchema) FormRenderer.build(state.formSchema, state.formValues);
+},
 
     async confirm() {
         try {
@@ -733,21 +796,21 @@ window.addEventListener('DOMContentLoaded', () => {
     renderBot({ type: 'welcome' });
 });
 // Build YouTube iframe src from config — no hardcoding
-function initYouTubePlayer() {
-    const yt = CONFIG.YOUTUBE;
-    const params = new URLSearchParams({
-        controls:        yt.controls,
-        fs:              yt.fs,
-        rel:             yt.rel,
-        modestbranding:  yt.modestbranding,
-        cc_load_policy:  yt.cc_load_policy,
-        autoplay:        yt.autoplay
-    });
-    const iframe = document.getElementById('tutorialVideo');
-    if (iframe) {
-        iframe.src = `https://www.youtube.com/embed/${yt.videoId}?${params.toString()}`;
-    }
-}
+// function initYouTubePlayer() {
+//     const yt = CONFIG.YOUTUBE;
+//     const params = new URLSearchParams({
+//         controls:        yt.controls,
+//         fs:              yt.fs,
+//         rel:             yt.rel,
+//         modestbranding:  yt.modestbranding,
+//         cc_load_policy:  yt.cc_load_policy,
+//         autoplay:        yt.autoplay
+//     });
+//     const iframe = document.getElementById('tutorialVideo');
+//     if (iframe) {
+//         iframe.src = `https://www.youtube.com/embed/${yt.videoId}?${params.toString()}`;
+//     }
+// }
 
 // Pause when tutorial is collapsed
 document.querySelector('.demo-video')?.addEventListener('toggle', function() {
