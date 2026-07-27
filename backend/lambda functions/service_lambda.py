@@ -65,8 +65,11 @@ BOOKED_APPOINTMENTS = {
 # --- HELPER FUNCTIONS ---
 def validate_phone(phone_number):
     if not phone_number: return False
-    cleaned = ''.join(filter(str.isdigit, phone_number))
-    return len(cleaned) == 10
+    phone_str = str(phone_number)
+    if any(c.isalpha() for c in phone_str):
+        return False
+    cleaned = re.sub(r'[\s\-\(\)\+]', '', phone_str)
+    return cleaned.isdigit() and len(cleaned) == 10
 
 def validate_email(email_address):
     if not email_address: return False
@@ -141,7 +144,7 @@ def _form_schema():
     date_options = button_days
     product_options = [{"text": p, "value": p} for p in VALID_PRODUCTS]
     time_options = [{"text": t, "value": t} for t in ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]]
-
+ 
     return {
         "title": "Schedule Your Product Consultation",
         "submitLabel": "Confirm Booking",
@@ -153,27 +156,25 @@ def _form_schema():
             { "name": "email", "type": "email", "label": "Email Address", "placeholder": "name@domain.com", "required": True },
             { "name": "productName", "type": "select", "label": "Select Product / Service", "options": product_options, "required": True },
             { "name": "message", "type": "text", "label": "Briefly describe your requirement (optional)", "placeholder": "e.g., Looking to migrate our ERP to AWS..." },
-            { "name": "setupCall", "type": "radio", "label": "Schedule a call?", "options": ["Yes", "No"], "required": True },
-            { "name": "preferredDate", "type": "select", "label": "Preferred Date", "options": date_options },
-            { "name": "preferredTime", "type": "select", "label": "Preferred Time", "options": time_options },
+            { "name": "preferredDate", "type": "select", "label": "Preferred Call Date (optional)", "options": date_options },
+            { "name": "preferredTime", "type": "select", "label": "Preferred Call Time (optional)", "options": time_options },
             { "name": "tnc", "type": "checkbox", "label": "I agree to the Terms & Conditions", "required": True }
         ]
     }
-
-
+ 
+ 
 def _validate_form(values):
     errors = {}
     def req(name, label):
         if not values.get(name) or not str(values[name]).strip():
             errors[name] = f"{label} is required."
-
+ 
     req("firstName",    "First name")
     req("lastName",     "Last name")
     req("phoneNumber",  "Phone")
     req("email",        "Email")
     req("productName",  "Product")
-    req("setupCall",    "Call preference")
-
+ 
     phone = values.get("phoneNumber", "")
     if phone and not validate_phone(phone):
         errors["phoneNumber"] = "Enter exactly 10 digits."
@@ -183,25 +184,43 @@ def _validate_form(values):
     product = values.get("productName", "")
     if product and product.lower() not in [p.lower() for p in VALID_PRODUCTS]:
         errors["productName"] = "Unsupported product."
-
-    wants_call = str(values.get("setupCall", "")).strip().lower() == "yes"
-    if wants_call:
+ 
+    # setupCall (Lex-only) still gates date/time there. For the web form,
+    # there's no setupCall question — date/time are simply optional fields;
+    # if the user picked one, validate it regardless.
+    if "setupCall" in values:
+        req("setupCall", "Call preference")
+        wants_call = str(values.get("setupCall", "")).strip().lower() == "yes"
+        if wants_call:
+            date_str = values.get("preferredDate", "")
+            valid_dates, _ = get_business_days()
+            if not date_str:
+                errors["preferredDate"] = "Date is required."
+            elif date_str not in valid_dates:
+                errors["preferredDate"] = "That date is unavailable."
+            time_str = values.get("preferredTime", "")
+            if not time_str:
+                errors["preferredTime"] = "Time is required."
+            elif date_str:
+                avail = get_available_times(date_str)
+                requested_time = normalize_time(time_str)
+                if not any(t["val_24h"] == requested_time for t in avail):
+                    errors["preferredTime"] = "That time slot is no longer available."
+    else:
         date_str = values.get("preferredDate", "")
-        valid_dates, _ = get_business_days()
-        if not date_str:
-            errors["preferredDate"] = "Date is required."
-        elif date_str not in valid_dates:
-            errors["preferredDate"] = "That date is unavailable."
         time_str = values.get("preferredTime", "")
-        if not time_str:
-            errors["preferredTime"] = "Time is required."
-        elif date_str:
-            avail = get_available_times(date_str)
-            requested_time = normalize_time(time_str)
-            if not any(t["val_24h"] == requested_time for t in avail):
-                errors["preferredTime"] = "That time slot is no longer available."
+        if date_str or time_str:
+            valid_dates, _ = get_business_days()
+            if date_str and date_str not in valid_dates:
+                errors["preferredDate"] = "That date is unavailable."
+            if time_str and date_str:
+                avail = get_available_times(date_str)
+                requested_time = normalize_time(time_str)
+                if not any(t["val_24h"] == requested_time for t in avail):
+                    errors["preferredTime"] = "That time slot is no longer available."
+            elif time_str and not date_str:
+                errors["preferredDate"] = "Please also pick a date for your preferred time."
     return errors
-
 
 def _save_booking(values, session_id):
     """
@@ -211,28 +230,28 @@ def _save_booking(values, session_id):
     ref = "CL-" + uuid.uuid4().hex[:8].upper()
     print(f"[krishna] booking saved ref={ref} session={session_id} values={values}")
     return ref
-
-
+ 
+ 
 def _form_response(messages=None, session_attrs=None):
     return {
         "messages": messages or [],
         "sessionAttributes": session_attrs or {}
     }
-
-
+ 
+ 
 def handle_form_event(event):
     action = event.get("formAction")
     if not action and event.get("invocationSource") == "FastLane":
         action = event.get("request", {}).get("type")
     action = (action or "").upper()
-
+ 
     values = event.get("values")
     if not values and event.get("invocationSource") == "FastLane":
         values = event.get("request", {}).get("data")
     values = values or {}
-
+ 
     session_id = event.get("sessionId", "")
-
+ 
     if action == "INIT":
         schema = _form_schema()
         return _form_response(
@@ -240,7 +259,7 @@ def handle_form_event(event):
                        "content": "Please fill in the form below to book your consultation."}],
             session_attrs={"formSchema": json.dumps(schema)}
         )
-
+ 
     if action == "SUBMIT":
         errors = _validate_form(values)
         if errors:
@@ -249,7 +268,7 @@ def handle_form_event(event):
                            "content": "Please fix the highlighted fields."}],
                 session_attrs={"formErrors": json.dumps(errors)}
             )
-
+ 
         summary = {
             "title": "Confirm your consultation",
             "subtitle": "Review the details before we book.",
@@ -258,14 +277,14 @@ def handle_form_event(event):
                 {"label": "Phone",    "value": values.get("phoneNumber","")},
                 {"label": "Email",    "value": values.get("email","")},
                 {"label": "Product",  "value": values.get("productName","")},
-                {"label": "Notes",    "value": values.get("message","") or "—"},
-                {"label": "Call?",    "value": values.get("setupCall","")},
-                {"label": "Date",     "value": values.get("preferredDate","") or "—"},
-                {"label": "Time",     "value": values.get("preferredTime","") or "—"}
+                {"label": "Notes",    "value": values.get("message","") or "—"}
             ]
         }
+        if values.get("preferredDate") or values.get("preferredTime"):
+            summary["rows"].append({"label": "Preferred Date", "value": values.get("preferredDate","") or "—"})
+            summary["rows"].append({"label": "Preferred Time", "value": values.get("preferredTime","") or "—"})
         return _form_response(session_attrs={"formSummary": json.dumps(summary)})
-
+ 
     if action == "CONFIRM":
         errors = _validate_form(values)
         if errors:
@@ -281,7 +300,7 @@ def handle_form_event(event):
             "referenceId": ref
         }
         return _form_response(session_attrs={"formSuccess": json.dumps(success)})
-
+ 
     return _form_response(messages=[{"contentType": "PlainText",
                                      "content": f"Unknown form action: {action}"}])
 
