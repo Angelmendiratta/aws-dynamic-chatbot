@@ -8,15 +8,27 @@ Adds bypass logic for the dynamic-form protocol:
 
 Everything else keeps the original Lex flow untouched.
 
+Also adds a Gemini-powered FAQ layer (gemini_faq.py):
+  - Company / cloud-IT questions are answered by Gemini instead of Lex,
+    both before a bot is selected and mid-conversation.
+  - Lex is NOT called on those turns, so slot state stays intact; the last
+    bot prompt is re-asked so the booking flow resumes cleanly.
+
 ENV VARS EXPECTED:
   ANGEL_BOT_ID, DHRUV_BOT_ID, REGION           (as before)
-  ANGEL_LAMBDA_ARN, DHRUV_LAMBDA_ARN           (new — for direct Lambda invoke)
+  ANGEL_LAMBDA_ARN, DHRUV_LAMBDA_ARN           (for direct Lambda invoke)
+  GEMINI_API_KEY                               (new — FAQ layer; optional,
+                                                without it FAQ falls back to Lex)
+  GEMINI_MODEL, COMPANY_NAME                   (new — optional overrides)
 """
 
 import json
 import boto3
 import uuid
 import os
+
+import gemini_faq
+
 
 
 # --------------------------------------------------------------------
@@ -85,6 +97,59 @@ def _invoke_business_lambda(lambda_arn, region, payload):
         return {'error': 'invalid lambda response', 'raw': raw.decode('utf-8', 'ignore')}
 
 
+NO_BOT_NUDGE = ("To book a consultation, please select an assistant above "
+                "and I'll take it from there.")
+FORM_NUDGE = "Your form is still open above — carry on whenever you're ready."
+
+FORM_ALSO_NUDGE = "Your form is also still open above."
+
+IDLE_NUDGE = ("You can fill in the form above, or type 'hi' to start the "
+              "booking chat.")
+
+
+
+def _faq_reply(session_id, active_bot, question, last_prompt, form_open):
+    """
+    Build the FAQ response.
+
+    Lex is never invoked on this turn, so any pending slot elicitation is
+    preserved exactly — we only re-show the question the bot last asked.
+    If Gemini is unavailable we still answer here with a failsafe message
+    instead of sending the question to Lex (which would reply
+    "I didn't catch that" and could disturb the flow).
+    """
+    text = gemini_faq.answer(question) or gemini_faq.local_answer(question)
+
+    messages = [{'contentType': 'PlainText', 'content': text}]
+
+    if not active_bot:
+        messages.append({'contentType': 'PlainText', 'content': NO_BOT_NUDGE})
+    elif last_prompt:
+        # A pending Lex question always wins — re-ask it so the booking flow
+        # resumes exactly where it left off, even if the form is also open.
+        messages.append({
+            'contentType': 'PlainText',
+            'content': "Now, back to where we were — {}".format(last_prompt)
+        })
+        if form_open:
+            messages.append({'contentType': 'PlainText',
+                             'content': FORM_ALSO_NUDGE})
+    elif form_open:
+        messages.append({'contentType': 'PlainText', 'content': FORM_NUDGE})
+    else:
+        messages.append({'contentType': 'PlainText', 'content': IDLE_NUDGE})
+
+    # Always echo lastPrompt back (even when empty) so the frontend keeps the
+    # pending question across consecutive FAQ turns.
+    attrs = {'lastPrompt': last_prompt}
+
+    return _ok({
+        'messages': messages,
+        'sessionId': session_id,
+        'activeBot': active_bot,
+        'sessionAttributes': attrs
+    })
+
 # --------------------------------------------------------------------
 # Handler
 # --------------------------------------------------------------------
@@ -94,6 +159,10 @@ def lambda_handler(event, context):
         user_message = body.get('message', '')
         session_id   = body.get('sessionId', str(uuid.uuid4()))
         active_bot   = body.get('activeBot', '')
+        # Echoed back by the frontend: the last question the bot asked, and
+        # whether the dynamic form is currently on screen.
+        last_prompt  = (body.get('lastPrompt') or '').strip()
+        form_open    = bool(body.get('formOpen'))
 
         print(f"=== INCOMING REQUEST ===")
         print(f"Active Bot: {active_bot}")
@@ -104,14 +173,35 @@ def lambda_handler(event, context):
 
         BOT_REGISTRY = get_registry()
 
+        is_protocol = user_message.startswith(('SELECT_BOT:', 'INIT_', 'FORM_'))
+
+         # ---------------- Gemini self-test ----------------
+        # Type "GEMINI_DIAG" in the chat to see whether the live Gemini call
+        # works and, if not, the exact reason (missing key, 401, 404, quota).
+        if user_message.strip().upper() == 'GEMINI_DIAG':
+            return _ok({
+                'messages': [{'contentType': 'PlainText',
+                              'content': gemini_faq.diagnose()}],
+                'sessionId': session_id,
+                'activeBot': active_bot,
+                'sessionAttributes': {}
+            })
+        # ---------------- Gemini FAQ layer ----------------
+        # Runs for free-text only. Conservative gate: anything that looks like
+        # a slot answer or a booking utterance goes straight to Lex.
+        if not is_protocol and gemini_faq.is_knowledge_question(
+            user_message, has_pending_prompt=bool(last_prompt) or form_open
+        ):
+            print(f"FAQ: routing to Gemini (bot='{active_bot}', formOpen={form_open})")
+            return _faq_reply(session_id, active_bot, user_message, last_prompt, form_open)
+
         # ---------------- No bot selected yet ----------------
-        if not active_bot and not user_message.startswith('SELECT_BOT:') \
-                          and not user_message.startswith('INIT_') \
-                          and not user_message.startswith('FORM_'):
+        if not active_bot and not is_protocol:
             return _ok({
                 'messages': [], 'sessionId': session_id,
                 'activeBot': '', 'sessionAttributes': {}
             })
+
 
         # ---------------- SELECT_BOT ----------------
         if user_message.startswith('SELECT_BOT:'):
@@ -197,6 +287,17 @@ def lambda_handler(event, context):
 
         if messages:
             last_message = messages[-1].get('content', '')
+            # Remember the question the bot just asked, so if the user
+            # interrupts with an FAQ question we can re-ask it afterwards.
+            dialog_type = (response.get('sessionState', {})
+                                   .get('dialogAction', {})
+                                   .get('type', ''))
+            if last_message and (dialog_type in ('ElicitSlot', 'ElicitIntent', 'ConfirmIntent')
+                                 or last_message.strip().endswith('?')):
+                session_attrs['lastPrompt'] = last_message
+            else:
+                session_attrs['lastPrompt'] = ''
+
             if ("Your request has been noted"      in last_message or
                 "Our executive will call you"      in last_message or
                 "our executive will arrange a call" in last_message):
