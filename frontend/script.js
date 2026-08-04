@@ -19,13 +19,25 @@
  *   4. Free-text chat is forwarded to AWS Lex, unchanged.
  */
 
-const API_URL = (typeof CONFIG !== 'undefined' && CONFIG.API_URL) || '';
+/**
+ * Single config accessor. config.js may declare `const CONFIG = {...}` (a
+ * top-level lexical binding, NOT on window), so always read through this.
+ */
+const CFG = (typeof CONFIG !== 'undefined' && CONFIG) || window.CONFIG || {};
+
+const API_URL = CFG.API_URL || '';
+
+/** Demo video URL, with the older CONFIG.VIDEO.src shape as a fallback. */
+function demoVideoUrl() {
+    return (CFG.DEMO_VIDEO_URL || (CFG.VIDEO && CFG.VIDEO.src) || '').trim();
+}
 
 const BOT_META = {
-    angel:   { label: "Angel's Assistant",   color: '#7c6bff', initial: 'A' },
-    krishna: { label: "Krishna's Assistant", color: '#ff8c42', initial: 'K' },
-    dhruv:   { label: "Dhruv's Assistant",   color: '#00c4a7', initial: 'D' }
+    angel:   { label: "Angel's Assistant",   color: '#2f5d8a', initial: 'A' },
+    krishna: { label: "Krishna's Assistant", color: '#8a6a3a', initial: 'K' },
+    dhruv:   { label: "Dhruv's Assistant",   color: '#3f6b57', initial: 'D' }
 };
+
 
 const state = {
     sessionId:  makeId(),
@@ -33,8 +45,16 @@ const state = {
     loading:    false,
     formSchema: null,
     formValues: {},
-    formSummary: null
+    formSummary: null,
+    // Last question the bot asked. Echoed back to the router so that if the
+    // user interrupts with a general question, the bot can re-ask it and the
+    // conversation flow doesn't break.
+    lastPrompt: '',
+    // Form the router offered on the previous turn, awaiting a yes/no.
+    pendingBot: ''
 };
+
+
 
 function makeId() {
     return 'sess-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
@@ -123,35 +143,12 @@ function buildWelcomeCard() {
     card.innerHTML = `
         <p class="welcome-eyebrow">Appliance Consultation</p>
         <h2 class="welcome-title">Welcome To Cloud Ladder Consulting</h2>
-        <p class="welcome-sub">Choose an assistant to get started. Each assistant handles refrigerator, TV, washing machine, and dishwasher bookings.</p>
-        <div class="bot-picker" id="botPicker">
-            <button class="bot-pick-btn" data-bot="angel" onclick="Chat.pickBot('angel', this)">
-                <div class="pick-avatar" style="background:linear-gradient(135deg,#7c6bff,#5b4fd8)">A</div>
-                <div class="pick-info">
-                    <div class="pick-name">Consultancy Help</div>
-                    <div class="pick-sub">Maintenance Help · Available now</div>
-                </div>
-                <span class="pick-arrow">→</span>
-            </button>
-            <button class="bot-pick-btn" data-bot="krishna" onclick="Chat.pickBot('krishna', this)">
-                <div class="pick-avatar" style="background:linear-gradient(135deg,#ff8c42,#e05f00)">K</div>
-                <div class="pick-info">
-                    <div class="pick-name">Service Inquiry</div>
-                    <div class="pick-sub">Technical Support · Available Now</div>
-                </div>
-                <span class="pick-arrow">→</span>
-            </button>
-            <button class="bot-pick-btn" data-bot="dhruv" onclick="Chat.pickBot('dhruv', this)">
-                <div class="pick-avatar" style="background:linear-gradient(135deg,#00c4a7,#007a68)">D</div>
-                <div class="pick-info">
-                    <div class="pick-name">Purchase Help</div>
-                    <div class="pick-sub">Purchase Help · Available now</div>
-                </div>
-                <span class="pick-arrow">→</span>
-            </button>
-        </div>`;
+        <p class="welcome-sub">Just tell me what you need — a product consultation,
+        a sales or purchase call, or help with cloud &amp; IT services — and I'll
+        open the right form for you.</p>`;
     return card;
 }
+
 
 function buildCardBubble(title, buttons) {
     const wrap = document.createElement('div');
@@ -171,11 +168,12 @@ function buildCardBubble(title, buttons) {
                 // Backend-driven action: play a video inline in this chat (no new tab).
                 if (b.action === 'playVideo') {
                     btns.querySelectorAll('.card-btn').forEach(x => x.disabled = true);
-                    const videoUrl = b.url || (window.CONFIG && CONFIG.DEMO_VIDEO_URL) || '';
+                    const videoUrl = b.url || demoVideoUrl();
                     if (videoUrl) {
                         playInlineVideo(videoUrl);
                     } else {
-                        renderBot({ type: 'text', text: 'Demo video is not configured yet. Set DEMO_VIDEO_URL in config.js.' });
+                        renderBot({ type: 'text', text: 'Demo video is not configured yet. Set DEMO_VIDEO_URL in frontend/config.js.' });
+                        resumePendingPrompt();
                     }
                     return;
                 }
@@ -193,6 +191,17 @@ function buildCardBubble(title, buttons) {
     return wrap;
 }
 
+/**
+ * Re-ask whatever the bot was waiting for, so watching a demo (or any other
+ * side trip) never leaves the booking flow hanging.
+ */
+function resumePendingPrompt() {
+    if (state.lastPrompt) {
+        renderBot({ type: 'text', text: 'Back to where we were — ' + state.lastPrompt });
+    } else if (state.formSchema) {
+        renderBot({ type: 'text', text: 'Your form is still open above — finish the fields and hit Continue.' });
+    }
+}
 
 function playInlineVideo(url) {
     const box = $('messages');
@@ -208,11 +217,20 @@ function playInlineVideo(url) {
     video.autoplay = true;
     video.playsInline = true;
     video.preload = 'metadata';
+    // Whatever happens to the video, put the conversation back on track.
+    let resumed = false;
+    const resumeOnce = () => { if (!resumed) { resumed = true; resumePendingPrompt(); } };
+    video.onended = resumeOnce;
+    video.onerror = () => {
+        renderBot({ type: 'text', text: "⚠ The demo video couldn't be loaded. Check the S3 object is public / CORS-enabled." });
+        resumeOnce();
+    };
     wrap.appendChild(video);
     row.appendChild(wrap);
     box.appendChild(row);
     scrollBottom();
 }
+
 function showTyping() {
     const box = $('messages');
     const row = document.createElement('div');
@@ -232,13 +250,23 @@ function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').re
    API MANAGER — one endpoint for everything
 ════════════════════════════════════════════════ */
 async function callAPI(message) {
-    if (!API_URL) throw new Error('API_URL not configured (edit public/config.js).');
+    if (!API_URL) throw new Error('API_URL not configured (edit frontend/config.js).');
     const res = await fetch(API_URL, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, sessionId: state.sessionId, activeBot: state.activeBot })
+        body: JSON.stringify({
+            message,
+            sessionId:  state.sessionId,
+            activeBot:  state.activeBot,
+            lastPrompt: state.lastPrompt,
+            pendingBot: state.pendingBot,
+            formOpen:   !!state.formSchema
+        })
+
     });
     if (!res.ok) {
+
+
         const body = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status} from ${API_URL} — ${body.slice(0, 200)}`);
     }
@@ -260,6 +288,24 @@ function handleResponse(data) {
     const attrs = data.sessionAttributes || {};
     const messages = data.messages || [];
 
+    // Track the bot's pending question so an FAQ interruption can resume it.
+    if (Object.prototype.hasOwnProperty.call(attrs, 'lastPrompt')) {
+        state.lastPrompt = attrs.lastPrompt || '';
+    }
+
+    // A form offer is only alive for the turn the router set it on.
+    state.pendingBot = attrs.pendingBot || '';
+
+    // The router matched an intent and the user confirmed it: run the normal
+    // SELECT_BOT + INIT_<BOT> handshake so the business Lambda supplies the form.
+    if (attrs.selectBot) {
+        messages.forEach(msg => {
+            if (msg.contentType === 'PlainText') renderBot({ type: 'text', text: msg.content });
+        });
+        Chat.openBot(attrs.selectBot);
+        return;
+    }
+
     if (attrs.formSchema) {
         try { FormFlow.openWithSchema(JSON.parse(attrs.formSchema)); } catch (e) { console.error('bad formSchema', e); }
         return;
@@ -278,9 +324,16 @@ function handleResponse(data) {
     }
 
     if (messages.length === 0 && !attrs.formErrors) {
-        renderBot({ type: 'text', text: "I didn't catch that. Could you try again?" });
+        renderBot({
+            type: 'text',
+            text: state.activeBot
+                ? "I didn't catch that. Could you try again?"
+                : "Tell me what you need — a product consultation, a sales or purchase call, or help with cloud & IT services."
+        });
         return;
     }
+
+
 
     let uiButtons = [];
     try { const raw = attrs.uiButtons; if (raw) uiButtons = JSON.parse(raw); } catch (e) { uiButtons = []; }
@@ -715,11 +768,18 @@ const FormFlow = {
    CHAT MANAGER
 ════════════════════════════════════════════════ */
 const Chat = {
-    async pickBot(botKey, btnEl) {
-        document.querySelectorAll('.bot-pick-btn').forEach(b => b.disabled = true);
-        state.activeBot = botKey;
+    /**
+     * Open a bot's form. No longer wired to buttons — the router decides which
+     * bot fits what the user typed and the user confirms it in chat.
+     * Any form already on screen is cleared first so no stale fields remain.
+     */
+    async openBot(botKey) {
+        if (!BOT_META[botKey]) return;
+        if (state.activeBot && state.activeBot !== botKey) FormFlow.close();
+        state.activeBot  = botKey;
+        state.pendingBot = '';
+        state.lastPrompt = '';
         setBadge(botKey);
-        renderUser(BOT_META[botKey].label);
         showTyping();
         state.loading = true;
         try {
@@ -729,12 +789,10 @@ const Chat = {
             handleResponse(selectRes);
 
             // 2) Ask the business Lambda for its form schema.
-            if (botKey === 'angel' || botKey === 'dhruv' || botKey === 'krishna') {
-                showTyping();
-                const initRes = await callAPI(`INIT_${botKey.toUpperCase()}`);
-                hideTyping();
-                handleResponse(initRes);
-            }
+            showTyping();
+            const initRes = await callAPI(`INIT_${botKey.toUpperCase()}`);
+            hideTyping();
+            handleResponse(initRes);
         } catch (e) {
             hideTyping();
             renderBot({ type: 'text', text: '⚠ Could not reach the server. Check your connection and try again.' });
@@ -743,6 +801,7 @@ const Chat = {
             state.loading = false;
         }
     },
+
 
     send() {
         const inp  = $('userInput');
@@ -776,13 +835,31 @@ const Chat = {
 
     handleKey(e) { if (e.key === 'Enter') this.send(); },
 
+    /** Play the demo video inline, without touching the chat/booking state. */
+    showDemo() {
+        const url = demoVideoUrl();
+        if (!url) {
+            renderBot({ type: 'text', text: 'Demo video is not configured yet. Set DEMO_VIDEO_URL in frontend/config.js.' });
+            resumePendingPrompt();
+            return;
+        }
+        renderBot({ type: 'text', text: "Here's a short demo of how this assistant works." });
+        playInlineVideo(url);
+
+    },
+
+
     reset() { const m = $('restartModal'); if (m) m.style.display = 'flex'; },
     cancelRestart() { const m = $('restartModal'); if (m) m.style.display = 'none'; },
     confirmRestart() {
         const m = $('restartModal'); if (m) m.style.display = 'none';
         state.sessionId = makeId();
         state.activeBot = '';
+        state.lastPrompt = '';
+        state.pendingBot = '';
         state.loading   = false;
+
+
         setBadge('');
         $('messages').innerHTML = '';
         FormFlow.close();
@@ -824,5 +901,4 @@ document.querySelector('.demo-video')?.addEventListener('toggle', function() {
     }
 });
 
-// Call on page load
-window.addEventListener('DOMContentLoaded', initYouTubePlayer);
+
