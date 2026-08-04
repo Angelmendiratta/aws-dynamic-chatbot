@@ -28,6 +28,9 @@ import uuid
 import os
 
 import gemini_faq
+import form_intent
+
+
 
 
 
@@ -97,14 +100,141 @@ def _invoke_business_lambda(lambda_arn, region, payload):
         return {'error': 'invalid lambda response', 'raw': raw.decode('utf-8', 'ignore')}
 
 
-NO_BOT_NUDGE = ("To book a consultation, please select an assistant above "
-                "and I'll take it from there.")
-FORM_NUDGE = "Your form is still open above — carry on whenever you're ready."
+NO_BOT_NUDGE = ("Tell me what you need — a product consultation, a sales or "
+                "purchase call, or help with cloud/IT services — and I'll open "
+                "the right form for you.")
 
-FORM_ALSO_NUDGE = "Your form is also still open above."
+FORM_NUDGE = "Your form is still open above — carry on whenever you're ready."
 
 IDLE_NUDGE = ("You can fill in the form above, or type 'hi' to start the "
               "booking chat.")
+
+ASK_AREA = ("Sure — which of these do you need? A product consultation, a "
+            "sales or purchase call, or help with cloud/IT services?")
+
+AREA_BUTTONS = json.dumps([
+    {"text": "Product consultation", "value": "CONFIRM_BOT:angel"},
+    {"text": "Sales / purchase call", "value": "CONFIRM_BOT:dhruv"},
+    {"text": "Cloud & IT services",   "value": "CONFIRM_BOT:krishna"},
+])
+
+# Words that mean "do something for me" rather than "tell me something".
+_ACTION_MARKERS = (
+    "i want", "i need", "we need", "we want", "i'd like", "i would like",
+    "can you help", "could you help", "help me", "help us", "looking for",
+    "interested in", "please arrange", "arrange", "set up a", "book",
+    "booking", "appointment", "schedule", "call me", "callback",
+    "get in touch", "quote", "price", "pricing", "buy", "purchase",
+)
+
+
+def _wants_action(message):
+    low = (message or "").lower()
+    return any(marker in low for marker in _ACTION_MARKERS)
+
+
+def _confirm_bot_reply(session_id, active_bot, bot, switching, last_prompt):
+    """Ask the user to confirm before we open (or switch to) a form."""
+    label = form_intent.BOT_LABELS.get(bot, 'booking')
+    if switching:
+        current = form_intent.BOT_LABELS.get(active_bot, 'current')
+        text = ("You're currently on the {} — switch to the {} form instead?"
+                .format(current, label))
+    else:
+        text = "Sounds like you need a {} — shall I open that form?".format(label)
+
+    return _ok({
+        'messages': [{'contentType': 'PlainText', 'content': text}],
+        'sessionId': session_id,
+        'activeBot': active_bot,
+        'sessionAttributes': {
+            'pendingBot': bot,
+            'lastPrompt': last_prompt,
+            'uiButtons': json.dumps([
+                {"text": "Yes, open it", "value": "CONFIRM_BOT:{}".format(bot)},
+                {"text": "No, not now",  "value": "DECLINE_BOT"},
+            ]),
+        }
+    })
+
+
+def _ask_area_reply(session_id, active_bot, last_prompt=''):
+    return _ok({
+        'messages': [{'contentType': 'PlainText', 'content': ASK_AREA}],
+        'sessionId': session_id,
+        'activeBot': active_bot,
+        'sessionAttributes': {
+            'pendingBot': '',
+            'lastPrompt': last_prompt,
+            'uiButtons': AREA_BUTTONS,
+        }
+    })
+
+def _soft_decline_reply(session_id, active_bot, last_prompt):
+    """User said no with nothing in progress — stay quiet and stay available."""
+    return _ok({
+        'messages': [{'contentType': 'PlainText',
+                      'content': "No problem. Whenever you're ready, just tell me "
+                                 "what you need and I'll open the right form."}],
+        'sessionId': session_id,
+        'activeBot': active_bot,
+        'sessionAttributes': {'pendingBot': '', 'lastPrompt': last_prompt}
+    })
+
+
+def _demo_reply(session_id, active_bot, last_prompt, form_open):
+    """Offer the demo video inline, without touching the Lex session.
+
+    The pending question is NOT re-asked here — the frontend re-asks it once the
+    video finishes, so the nudge lands after the demo instead of before it.
+    """
+    messages = [{'contentType': 'PlainText',
+                 'content': "Sure — here's a short demo of how this assistant works."}]
+
+
+    return _ok({
+        'messages': messages,
+        'sessionId': session_id,
+        'activeBot': active_bot,
+        'sessionAttributes': {
+            'pendingBot': '',
+            'lastPrompt': last_prompt,
+            'uiButtons': json.dumps([
+                {"text": "▶ Play demo video", "action": "playVideo"}
+            ]),
+        }
+    })
+
+
+def _smalltalk_reply(session_id, active_bot, text, last_prompt, form_open):
+    messages = [{'contentType': 'PlainText', 'content': text}]
+    if last_prompt:
+        messages.append({'contentType': 'PlainText',
+                         'content': "Back to where we were — {}".format(last_prompt)})
+    elif form_open:
+        messages.append({'contentType': 'PlainText', 'content': FORM_NUDGE})
+    return _ok({
+        'messages': messages,
+        'sessionId': session_id,
+        'activeBot': active_bot,
+        'sessionAttributes': {'pendingBot': '', 'lastPrompt': last_prompt}
+    })
+
+
+
+def _open_bot_reply(session_id, bot):
+    """
+    Tell the frontend to run the normal SELECT_BOT + INIT_<BOT> handshake, so
+    the business Lambda stays the single source of truth for the form schema.
+    """
+    label = form_intent.BOT_LABELS.get(bot, 'booking')
+    return _ok({
+        'messages': [{'contentType': 'PlainText',
+                      'content': "Great — opening the {} form.".format(label)}],
+        'sessionId': session_id,
+        'activeBot': '',
+        'sessionAttributes': {'selectBot': bot, 'pendingBot': '', 'lastPrompt': ''}
+    })
 
 
 
@@ -131,9 +261,6 @@ def _faq_reply(session_id, active_bot, question, last_prompt, form_open):
             'contentType': 'PlainText',
             'content': "Now, back to where we were — {}".format(last_prompt)
         })
-        if form_open:
-            messages.append({'contentType': 'PlainText',
-                             'content': FORM_ALSO_NUDGE})
     elif form_open:
         messages.append({'contentType': 'PlainText', 'content': FORM_NUDGE})
     else:
@@ -150,6 +277,7 @@ def _faq_reply(session_id, active_bot, question, last_prompt, form_open):
         'sessionAttributes': attrs
     })
 
+
 # --------------------------------------------------------------------
 # Handler
 # --------------------------------------------------------------------
@@ -163,6 +291,8 @@ def lambda_handler(event, context):
         # whether the dynamic form is currently on screen.
         last_prompt  = (body.get('lastPrompt') or '').strip()
         form_open    = bool(body.get('formOpen'))
+        # Form we offered on the previous turn and are waiting on a yes/no for.
+        pending_bot  = (body.get('pendingBot') or '').strip().lower()
 
         print(f"=== INCOMING REQUEST ===")
         print(f"Active Bot: {active_bot}")
@@ -173,9 +303,10 @@ def lambda_handler(event, context):
 
         BOT_REGISTRY = get_registry()
 
-        is_protocol = user_message.startswith(('SELECT_BOT:', 'INIT_', 'FORM_'))
+        is_protocol = user_message.startswith(
+            ('SELECT_BOT:', 'INIT_', 'FORM_', 'CONFIRM_BOT:', 'DECLINE_BOT'))
 
-         # ---------------- Gemini self-test ----------------
+        # ---------------- Gemini self-test ----------------
         # Type "GEMINI_DIAG" in the chat to see whether the live Gemini call
         # works and, if not, the exact reason (missing key, 401, 404, quota).
         if user_message.strip().upper() == 'GEMINI_DIAG':
@@ -186,6 +317,75 @@ def lambda_handler(event, context):
                 'activeBot': active_bot,
                 'sessionAttributes': {}
             })
+
+        # ---------------- Form-choice confirmation ----------------
+        # Button clicks from the confirm / "which area" cards.
+        if user_message.startswith('CONFIRM_BOT:'):
+            chosen = user_message.split(':', 1)[1].strip().lower()
+            if chosen in BOT_REGISTRY:
+                return _open_bot_reply(session_id, chosen)
+            return _ask_area_reply(session_id, active_bot, last_prompt)
+
+        if user_message.startswith('DECLINE_BOT'):
+            if active_bot and last_prompt:
+                # Stay in the current flow and resume the pending question.
+                return _ok({
+                    'messages': [
+                        {'contentType': 'PlainText',
+                         'content': "No problem — let's carry on."},
+                        {'contentType': 'PlainText',
+                         'content': "Back to where we were — {}".format(last_prompt)},
+                    ],
+                    'sessionId': session_id,
+                    'activeBot': active_bot,
+                    'sessionAttributes': {'pendingBot': '', 'lastPrompt': last_prompt}
+                })
+            return _soft_decline_reply(session_id, active_bot, last_prompt)
+
+        # ---------------- Demo video ----------------
+        if not is_protocol and form_intent.wants_demo(user_message):
+            return _demo_reply(session_id, active_bot, last_prompt, form_open)
+
+        # ---------------- Courtesy / small talk ----------------
+        if not is_protocol and not pending_bot:
+            polite = form_intent.smalltalk_reply(user_message)
+            if polite:
+                return _smalltalk_reply(session_id, active_bot, polite,
+                                        last_prompt, form_open)
+
+        # Typed (rather than clicked) yes/no while a form offer is pending.
+        if pending_bot and not is_protocol:
+            if form_intent.is_yes(user_message):
+                if pending_bot in BOT_REGISTRY:
+                    return _open_bot_reply(session_id, pending_bot)
+            elif form_intent.is_no(user_message):
+                if active_bot and last_prompt:
+                    return _ok({
+                        'messages': [
+                            {'contentType': 'PlainText',
+                             'content': "No problem — let's carry on."},
+                            {'contentType': 'PlainText',
+                             'content': "Back to where we were — {}".format(last_prompt)},
+                        ],
+                        'sessionId': session_id,
+                        'activeBot': active_bot,
+                        'sessionAttributes': {'pendingBot': '', 'lastPrompt': last_prompt}
+                    })
+                return _soft_decline_reply(session_id, active_bot, last_prompt)
+            # Anything else: drop the offer and classify this message normally.
+
+
+
+        # ---------------- Form intent (action requests) ----------------
+        # An explicit request such as "I want to book a consultation" or
+        # "can you help us migrate to AWS?" opens a form instead of being
+        # answered as an FAQ.
+        if not is_protocol and _wants_action(user_message):
+            bot, _needs_area = form_intent.classify(user_message)
+            if bot and bot != active_bot:
+                return _confirm_bot_reply(session_id, active_bot, bot,
+                                          bool(active_bot), last_prompt)
+
         # ---------------- Gemini FAQ layer ----------------
         # Runs for free-text only. Conservative gate: anything that looks like
         # a slot answer or a booking utterance goes straight to Lex.
@@ -195,12 +395,18 @@ def lambda_handler(event, context):
             print(f"FAQ: routing to Gemini (bot='{active_bot}', formOpen={form_open})")
             return _faq_reply(session_id, active_bot, user_message, last_prompt, form_open)
 
-        # ---------------- No bot selected yet ----------------
-        if not active_bot and not is_protocol:
-            return _ok({
-                'messages': [], 'sessionId': session_id,
-                'activeBot': '', 'sessionAttributes': {}
-            })
+        # ---------------- Nothing pending: classify or ask ----------------
+        # Once a bot is active, plain chat keeps going to Lex — only explicit
+        # action requests (handled above) can offer a switch, so slot answers
+        # such as "washing machine" never hijack the flow.
+        if not is_protocol and not active_bot:
+            bot, _needs_area = form_intent.classify(user_message)
+            if bot:
+                return _confirm_bot_reply(session_id, '', bot, False, last_prompt)
+            return _ask_area_reply(session_id, '', last_prompt)
+
+
+
 
 
         # ---------------- SELECT_BOT ----------------
