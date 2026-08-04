@@ -1,150 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ApplianceCare — Consultation Booking</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cloud Ladder Consulting — Booking Assistant</title>
+<meta name="description" content="Chat with Cloud Ladder Consulting to book a product consultation, a sales call, or cloud & IT services help." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁️</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<div class="app" id="app">
+  <!-- ───────── App shell ───────── -->
+  <div class="app">
 
-    <!-- Top bar -->
     <header class="topbar">
-        <div class="topbar-left">
-            <div class="logo">
-                <div class="logo-icon">⚙</div>
-                <span class="logo-name">ApplianceCare</span>
-            </div>
-            <div class="bot-badge" id="botBadge" style="display:none;">
-                <div class="bot-badge-dot" id="botBadgeDot"></div>
-                <span id="botBadgeName">Angel</span>
-                <span class="bot-badge-label">· Active</span>
-            </div>
+      <div class="brand">
+        <div class="brand-mark">CL</div>
+        <div class="brand-text">
+          <h1>Cloud Ladder Consulting</h1>
+          <p>Booking assistant</p>
         </div>
-        <div class="topbar-right">
-            <button class="btn-ghost" onclick="Chat.reset()">↺ New Booking</button>
+      </div>
+
+      <div class="topbar-right">
+        <!-- Active bot badge (shown/hidden by script.js → setBadge) -->
+        <div class="bot-badge" id="botBadge" style="display:none">
+          <span class="bot-badge-dot" id="botBadgeDot"></span>
+          <span id="botBadgeName"></span>
         </div>
+        <button class="ghost-btn" onclick="Chat.showDemo()">▶ Demo video</button>
+        <button class="ghost-btn" onclick="Chat.reset()">↺ New Booking</button>
+      </div>
     </header>
 
-    <!-- Demo video -->
-    <details class="demo-video">
-    <summary>▶ Watch form tutorial</summary>
-    <div class="demo-video-frame-wrap">
-        <video
-            id="tutorialVideo"
-            width="100%"
-            height="315"
-            controls
-            controlsList="nodownload"
-            disablePictureInPicture
-        >
-            <source id="tutorialVideoSource" src="" type="video/mp4">
-            Your browser does not support the video tag.
-        </video>
+    <!-- ───────── Chat transcript ───────── -->
+    <main class="chat" id="messages" aria-live="polite"></main>
+
+    <!-- Typing indicator (toggled by script.js) -->
+    <div class="typing-slot" id="typing" style="display:none">
+      <div class="typing">
+        <span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>
+      </div>
     </div>
-</details>
 
-    <!-- Messages -->
-    <main class="messages" id="messages"></main>
-
-    <!-- Input -->
-    <footer class="inputbar">
-        <div class="input-wrap" id="inputWrap">
-            <input
-                type="text"
-                id="userInput"
-                placeholder="Type a message…"
-                autocomplete="off"
-                onkeydown="Chat.handleKey(event)"
-            />
-            <button class="send-btn" id="sendBtn" onclick="Chat.send()">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" stroke-width="2.5"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13"/>
-                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
-            </button>
-        </div>
+    <!-- ───────── Composer ───────── -->
+    <footer class="composer">
+      <input
+        id="userInput"
+        type="text"
+        autocomplete="off"
+        placeholder="Tell me what you need…"
+        onkeydown="Chat.handleKey(event)" />
+      <button id="sendBtn" class="send-btn" onclick="Chat.send()" aria-label="Send">➤</button>
     </footer>
+  </div>
 
-</div>
-
-<!-- RESTART MODAL -->
-<div class="modal-overlay" id="restartModal" style="display: none;">
-    <div class="modal-content">
-        <h3 class="modal-title">Start a new booking?</h3>
-        <p class="modal-text">Your current conversation will be cleared.</p>
-        <div class="modal-actions">
-            <button class="modal-btn cancel" onclick="Chat.cancelRestart()">Cancel</button>
-            <button class="modal-btn confirm" onclick="Chat.confirmRestart()">Confirm</button>
-        </div>
+  <!-- ───────── Restart confirmation modal ───────── -->
+  <div class="modal" id="restartModal" style="display:none">
+    <div class="modal-card">
+      <h3>Start over?</h3>
+      <p>This clears the chat and any form you've started.</p>
+      <div class="modal-btns">
+        <button class="form-btn secondary" onclick="Chat.cancelRestart()">Cancel</button>
+        <button class="form-btn primary" onclick="Chat.confirmRestart()">Yes, restart</button>
+      </div>
     </div>
-</div>
+  </div>
 
-<script src="config.js"></script>
-<script src="script.js?v=9"></script>
-
-<!-- <script>
-    // Build YouTube iframe src from CONFIG — no hardcoding
-    function initYouTubePlayer() {
-        const yt = CONFIG.YOUTUBE;
-        const params = new URLSearchParams({
-            controls:        yt.controls,
-            fs:              yt.fs,
-            rel:             yt.rel,
-            modestbranding:  yt.modestbranding,
-            cc_load_policy:  yt.cc_load_policy,
-            autoplay:        yt.autoplay
-        });
-        const iframe = document.getElementById('tutorialVideo');
-        if (iframe) {
-            iframe.src = 'https://www.youtube.com/embed/' + yt.videoId + '?' + params.toString();
-        }
-    }
-
-    // Pause video when tutorial section is collapsed
-    document.querySelector('.demo-video').addEventListener('toggle', function() {
-        if (!this.open) {
-            const iframe = document.getElementById('tutorialVideo');
-            if (iframe) {
-                const src = iframe.src;
-                iframe.src = '';
-                iframe.src = src;
-            }
-        }
-    });
-
-    // Run on page load
-    initYouTubePlayer();
-</script> -->
-<script>
-    // Load video src from config — no hardcoding
-    function initVideoPlayer() {
-        const v = CONFIG.VIDEO;
-        const source = document.getElementById('tutorialVideoSource');
-        const video  = document.getElementById('tutorialVideo');
-        if (source && v && v.src) {
-            source.src  = v.src;
-            source.type = v.type || 'video/mp4';
-            video.load();
-        }
-    }
-
-    // Pause video when tutorial section is collapsed
-    document.querySelector('.demo-video')?.addEventListener('toggle', function() {
-        const video = document.getElementById('tutorialVideo');
-        if (!this.open && video) {
-            video.pause();
-        }
-    });
-
-    initVideoPlayer();
-</script>
-
+  <script src="config.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
