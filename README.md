@@ -1,381 +1,166 @@
-# aws-dynamic-chatbot
-
-An AI-powered dual-assistant chatbot built using **AWS Lex V2, AWS Lambda, API Gateway, HTML, CSS, and JavaScript**.
-
-The chatbot supports two business workflows:
-
-- **Consultation Assistant** – Handles service requests, maintenance bookings, and appointment scheduling.
-- **Sales Assistant** – Assists customers with product inquiries and purchase consultations.
-
-Users can either chat naturally using Amazon Lex or complete a dynamic in-chat consultation form generated entirely by AWS Lambda.
-
----
-
-# Design Principle
-
-> **The backend controls the workflow. The frontend only renders it.**
-
-All business logic lives inside the AWS Lambda functions.
-
-The frontend is only responsible for:
-
-- Rendering the chat interface
-- Displaying dynamic forms
-- Sending user input to the backend
-- Displaying responses returned by the backend
-
-Any change to:
-
-- Form fields
-- Labels
-- Validation rules
-- Product lists
-- Appointment dates
-- Time slots
-- Booking workflow
-
-is made inside the Lambda functions—not in the frontend.
-
----
-
-# Architecture
-
-![Architecture](docs/architecture.png)
-
----
-
-# AWS Request Flow
-
-![AWS Flow](docs/screenshots/aws_flow.png)
-
----
-
-# System Architecture
-
-```
-                User
-                  │
-                  ▼
-     HTML / CSS / JavaScript Frontend
-                  │
-                  ▼
-          Amazon API Gateway
-                  │
-                  ▼
-          Router Lambda
-      (apihandler_lambda.py)
-                  │
-        ┌─────────┴─────────┐
-        ▼                   ▼
-Consultation Lambda     Sales Lambda
-                  │
-                  ▼
-             Amazon Lex V2
-                  │
-                  ▼
-           Response to Frontend
-```
-
----
-
-# Features
-
-- Dual AI assistants
-- Dynamic consultation forms
-- Real-time form validation
-- AWS Lex conversational chatbot
-- AWS Lambda backend
-- Amazon API Gateway integration
-- Appointment booking workflow
-- Session management
-- Responsive web interface
-
----
-
-# Repository Structure
-
-```
-integrated-chatbot/
-│
-├── backend/
-│   ├── lambda_functions/
-│   │   ├── consultation_handler.py
-│   │   └── sales_handler.py
-│   │
-│   ├── router/
-│   │   └── apihandler_lambda.py
-│   │
-│   └── requirements.txt
-│
-├── frontend/
-│   ├── index.html
-│   ├── script.js
-│   └── style.css
-│
-├── docs/
-│   ├── architecture.png
-│   └── screenshots/
-│       └── aws_flow.png
-│
-├── .gitignore
-└── README.md
-```
-
----
-
-# Backend Components
-
-## Router Lambda
-
-**backend/router/apihandler_lambda.py**
-
-Acts as the central router for every incoming request.
-
-Responsibilities:
-
-- Receives requests from API Gateway
-- Determines the active assistant
-- Routes dynamic form requests
-- Invokes the appropriate Lambda
-- Forwards conversational messages to Amazon Lex
-- Returns responses to the frontend
-
----
-
-## Consultation Handler
-
-**backend/lambda_functions/consultation_handler.py**
-
-Responsible for:
-
-- Building consultation forms
-- Form validation
-- Appointment scheduling
-- Booking confirmation
-- Consultation workflow
-
----
-
-## Sales Handler
-
-**backend/lambda_functions/sales_handler.py**
-
-Responsible for:
-
-- Product consultation workflow
-- Dynamic sales forms
-- Validation
-- Lead generation
-- Purchase consultation workflow
-
----
-
-# Frontend Components
-
-## index.html
-
-Provides the chatbot interface.
-
----
-
-## style.css
-
-Contains all styling for:
-
-- Chat interface
-- Dynamic forms
-- Buttons
-- Responsive layout
-
----
-
-## script.js
-
-Handles:
-
-- Chat rendering
-- Dynamic form rendering
-- API communication
-- Session management
-- User interactions
-- Form workflow
-
----
-
-# Request Flow
-
-### Dynamic Form Flow
-
-```
-User
-   │
-   ▼
-Frontend
-   │
-   ▼
-API Gateway
-   │
-   ▼
-Router Lambda
-   │
-   ▼
-Business Lambda
-   │
-   ▼
-Generate Form Schema
-   │
-   ▼
-Frontend Renders Form
-   │
-User Completes Form
-   │
-   ▼
-Backend Validation
-   │
-   ▼
-Booking Confirmation
-```
-
----
-
-### Chat Flow
-
-```
-User Message
-
-↓
-
-Frontend
-
-↓
-
-API Gateway
-
-↓
-
-Router Lambda
-
-↓
-
-Amazon Lex
-
-↓
-
-Lambda Fulfillment
-
-↓
-
-Frontend Response
-```
-
----
-
-# Tech Stack
-
-### Frontend
-
-- HTML5
-- CSS3
-- JavaScript
-
-### Backend
-
-- Python
-
-### AWS Services
-
-- Amazon Lex V2
-- AWS Lambda
-- Amazon API Gateway
-- AWS IAM
-- Amazon CloudWatch
-
-### Tools
-
-- Git
-- GitHub
-- GitHub Codespaces
-- VS Code
-
----
-
-# Local Development
-
-Clone the repository
-
-```bash
+AWS Dynamic Chatbot
+    
+An AI-powered dual-assistant chatbot built on AWS. It combines Amazon Lex V2 conversational AI with dynamic in-chat forms generated serverlessly via AWS Lambda. The entire business logic lives in the backend - the frontend simply renders what it’s told.
+________________________________________
+Features
+Feature	Description
+Dual AI Assistants	Consultation Assistant & Sales Assistant, each with its own workflow
+Dynamic Forms	In-chat consultation forms built and validated entirely by Lambda
+Natural Language	Full Amazon Lex V2 conversational chatbot support
+Backend-Driven Workflow	Change forms, validation, products, or slots without touching the frontend
+Responsive UI	Clean, mobile-friendly chat interface
+Serverless	100% serverless AWS architecture
+________________________________________
+Architecture
++-------------+
+|    User     |
++------+------+
+       |
+       v
++-----------------------------+
+|  HTML / CSS / JS Frontend   |
+|  (Renders only - no logic)  |
++-------------+---------------+
+              |
+              v
++-----------------------------+
+|      API Gateway (HTTP)     |
++-------------+---------------+
+              |
+              v
++-----------------------------+
+|       Router Lambda         |
+|    (apihandler_lambda.py)   |
++-------------+---------------+
+       |---------|
+       v         v
++------------+ +------------+
+|Consultation| |   Sales    |
+|  Lambda    | |  Lambda    |
++------+-----+ +------+-----+
+       |              |
+       +------+-------+
+              |
+              v
++-----------------------------+
+|       Amazon Lex V2         |
+|   (NLU + Intent Handling)   |
++-----------------------------+
+Request Flows
+Dynamic Form Flow
+User -> Frontend -> API Gateway -> Router Lambda -> Business Lambda
+                                                        |
+                                              Generate Form Schema
+                                                        |
+User <- Frontend <- Rendered Form <--------------------+
+  |
+Submit Form -> Backend Validation -> Booking Confirmation
+Chat Flow
+User Message -> Frontend -> API Gateway -> Router Lambda -> Amazon Lex
+                                                              |
+User <- Frontend <- Response <------------------ Lambda Fulfillment
+________________________________________
+Repository Structure
+aws-dynamic-chatbot/
+|
+|-- backend/
+|   |-- lambda_functions/
+|   |   |-- consultation_handler.py   # Consultation form & booking logic
+|   |   |-- sales_handler.py        # Sales inquiry & lead logic
+|   |
+|   |-- router/
+|   |   |-- apihandler_lambda.py    # Central request router
+|   |
+|   |-- requirements.txt
+|
+|-- frontend/
+|   |-- index.html                  # Chatbot UI
+|   |-- style.css                   # Styling & responsive layout
+|   |-- script.js                   # Rendering, API calls, session mgmt
+|
+|-- docs/
+|   |-- architecture.png
+|   |-- screenshots/
+|   |   |-- aws_flow.png
+|
+|-- .gitignore
+|-- README.md
+________________________________________
+Tech Stack
+Layer	Technology
+Frontend	HTML5, CSS3, Vanilla JavaScript
+Backend	Python 3.9+
+AI/NLP	Amazon Lex V2
+Compute	AWS Lambda
+API	Amazon API Gateway (HTTP API)
+Security	AWS IAM
+Observability	Amazon CloudWatch
+Dev Tools	Git, GitHub, VS Code
+________________________________________
+Getting Started
+Prerequisites
+•	AWS Account
+•	AWS CLI configured
+•	Python 3.9+
+•	A deployed Amazon Lex V2 bot
+1. Clone the Repository
 git clone https://github.com/Angelmendiratta/aws-dynamic-chatbot.git
-```
-
-Install backend dependencies
-
-```bash
+cd aws-dynamic-chatbot
+2. Install Backend Dependencies
 cd backend
 pip install -r requirements.txt
-```
-
-Configure the API endpoint inside:
-
-```
-frontend/script.js
-```
-
-Replace
-
-```javascript
-const API_URL = "YOUR_API_GATEWAY_URL_HERE";
-```
-
-with your deployed API Gateway endpoint.
-
-Open:
-
-```
-frontend/index.html
-```
-
-to run the frontend locally.
-
----
-
-# AWS Deployment
-
-Deploy:
-
-- Router Lambda
-- Consultation Lambda
-- Sales Lambda
-
-Create an HTTP API Gateway endpoint and connect it to the Router Lambda.
-
-Configure:
-
-- Amazon Lex Bot
-- Lambda permissions
-- IAM roles
-- Environment variables
-
-Finally update the API endpoint inside:
-
-```
-frontend/script.js
-```
-
-
-# Future Improvements
-
-- Authentication
-- Database integration (Amazon DynamoDB)
-- Email notifications
-- Analytics dashboard
-- Admin portal
-- Multi-language support
-- Additional AI assistants
-
----
-
-# Author
-
-**Angel Mendiratta**
-
+3. Deploy AWS Resources
+1.	Create Lambda Functions
+–	Deploy apihandler_lambda.py as the Router Lambda
+–	Deploy consultation_handler.py as the Consultation Lambda
+–	Deploy sales_handler.py as the Sales Lambda
+2.	Set up API Gateway
+–	Create an HTTP API
+–	Add a POST / route
+–	Integrate with the Router Lambda
+3.	Configure Amazon Lex V2
+–	Create your bot with intents for both assistants
+–	Attach Lambda fulfillment hooks
+4.	IAM & Permissions
+–	Grant API Gateway permission to invoke Router Lambda
+–	Grant Router Lambda permission to invoke Consultation & Sales Lambdas
+–	Grant Lambdas permission to call Lex V2
+4. Configure the Frontend
+Open frontend/script.js and update the API endpoint:
+const API_URL = "https://your-api-gateway-id.execute-api.region.amazonaws.com";
+5. Run Locally
+Simply open frontend/index.html in your browser - no build step required.
+________________________________________
+Design Principle
+The backend controls the workflow. The frontend only renders it.
+All business logic - form fields, labels, validation rules, product lists, appointment slots, booking workflows - lives inside AWS Lambda. The frontend is a thin rendering layer:
+•	Renders chat interface
+•	Displays dynamic forms
+•	Sends input to backend
+•	Displays responses
+Want to change a form field? Edit the Lambda.
+Want to add a new product? Edit the Lambda.
+Want to change validation? Edit the Lambda.
+The frontend never needs to change.
+________________________________________
+Screenshots
+Add screenshots of your chatbot in action to docs/screenshots/ and embed them here:
+![Chat Interface](docs/screenshots/chat-interface.png)
+![Dynamic Form](docs/screenshots/dynamic-form.png)
+________________________________________
+Future Roadmap
+•	☐ Authentication - Cognito user login
+•	☐ Database - Amazon DynamoDB for persistent bookings
+•	☐ Notifications - Amazon SES/SNS email confirmations
+•	☐ Analytics - CloudWatch dashboards & usage metrics
+•	☐ Admin Portal - Web UI for managing forms & workflows
+•	☐ Multi-language - Lex built-in language support
+•	☐ Additional Assistants - Support, billing, etc.
+________________________________________
+Author
+Angel Mendiratta
 AI Software Developer | AWS | Python | JavaScript | Amazon Lex | AWS Lambda
+ 
+________________________________________
+License
+This project is open-source. Feel free to fork, modify, and deploy!
